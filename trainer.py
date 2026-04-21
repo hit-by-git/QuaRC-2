@@ -301,6 +301,7 @@ class QuantizationAwareTrainer:
         top1_correct = 0
         top5_correct = 0
         total = 0
+        all_pred_classes = []
         
         for inputs, targets in tqdm(val_loader, desc="Evaluating"):
             inputs = inputs.to(self.device)
@@ -312,6 +313,7 @@ class QuantizationAwareTrainer:
             # Top-1 accuracy
             _, pred = outputs.max(1)
             top1_correct += pred.eq(targets).sum().item()
+            all_pred_classes.append(pred.detach().cpu())
             
             # Top-5 accuracy
             _, top5_pred = outputs.topk(5, 1, True, True)
@@ -323,5 +325,16 @@ class QuantizationAwareTrainer:
         
         top1_acc = 100.0 * top1_correct / total
         top5_acc = 100.0 * top5_correct / total
+
+        # Runtime diagnostic for degenerate prediction collapse.
+        if len(all_pred_classes) > 0:
+            pred_tensor = torch.cat(all_pred_classes)
+            unique_pred_classes = torch.unique(pred_tensor).numel()
+            if unique_pred_classes <= 2 and top1_acc <= 2.0 and top5_acc <= 8.0:
+                print(
+                    "[Warning] Evaluation predictions look collapsed "
+                    f"(unique classes={unique_pred_classes}, top1={top1_acc:.2f}, top5={top5_acc:.2f}). "
+                    "Check quantization/training configuration."
+                )
         
         return top1_acc, top5_acc

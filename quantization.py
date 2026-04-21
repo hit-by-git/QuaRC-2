@@ -147,10 +147,9 @@ class StraightThroughQuantizer(nn.Module):
     def forward(self, x):
         """Forward with fake quantization, backward with straight-through"""
         if self.training:
-            # Forward: fake quantization
+            # Forward should use quantized values while backward approximates identity.
             x_quant = self.fake_quant(x)
-            # Backward: straight through (gradients pass unchanged)
-            return x_quant + (x - x_quant).detach()
+            return x + (x_quant - x).detach()
         else:
             return self.fake_quant(x)
 

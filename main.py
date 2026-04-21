@@ -23,7 +23,7 @@ from config import *
 from data_loader import get_cifar100_loaders, get_full_dataset
 from model_utils import (
     get_model, quantize_model, set_seed, create_checkpoint_dir,
-    save_checkpoint, get_device, print_model_info
+    save_checkpoint, get_device, print_model_info, count_parameters
 )
 from trainer import QuantizationAwareTrainer
 from coreset_selection import adaptive_coreset_selection
@@ -222,6 +222,14 @@ def main():
 
     print_model_info(fp_model, "Full-Precision Teacher")
     print_model_info(q_model, "Quantized Student")
+
+    # Guard against accidental student freezing (causes 1%/5% collapse symptoms).
+    trainable_params = count_parameters(q_model, trainable_only=True)
+    if trainable_params < 100000:
+        raise RuntimeError(
+            f"Quantized student has too few trainable parameters ({trainable_params}). "
+            "This usually indicates unintended freezing of the student model."
+        )
 
     # Setup optimizer
     logger.info("Setting up optimizer...")
