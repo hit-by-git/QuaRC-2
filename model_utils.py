@@ -4,6 +4,7 @@ Model utilities and helpers
 import torch
 import torch.nn as nn
 from torchvision import models
+from torchvision.models import MobileNet_V2_Weights, ResNet18_Weights, ResNet50_Weights
 import os
 from quantization import attach_lsq_plus_quantization
 
@@ -22,16 +23,19 @@ def get_model(model_name='mobilenetv2', num_classes=100, pretrained=True, device
         Loaded model
     """
     if model_name.lower() == 'mobilenetv2':
-        model = models.mobilenet_v2(pretrained=pretrained)
+        weights = MobileNet_V2_Weights.DEFAULT if pretrained else None
+        model = models.mobilenet_v2(weights=weights)
         # Modify classifier for CIFAR-100
         model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
     
     elif model_name.lower() == 'resnet18':
-        model = models.resnet18(pretrained=pretrained)
+        weights = ResNet18_Weights.DEFAULT if pretrained else None
+        model = models.resnet18(weights=weights)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     
     elif model_name.lower() == 'resnet50':
-        model = models.resnet50(pretrained=pretrained)
+        weights = ResNet50_Weights.DEFAULT if pretrained else None
+        model = models.resnet50(weights=weights)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
     
     else:
@@ -63,6 +67,10 @@ def quantize_model(model, weight_bits, activation_bits):
     # Store quantization parameters
     q_model.weight_bits = weight_bits
     q_model.activation_bits = activation_bits
+
+    # The teacher is frozen for KD/CLC; ensure the copied student remains trainable.
+    for param in q_model.parameters():
+        param.requires_grad = True
     
     # Attach LSQ+ quantization to Conv/Linear forward passes
     q_model = attach_lsq_plus_quantization(
@@ -135,9 +143,16 @@ def load_checkpoint(model, optimizer, checkpoint_path):
     return model, optimizer, epoch, top1_acc, top5_acc
 
 
-def count_parameters(model):
-    """Count total number of parameters in model"""
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+def count_parameters(model, trainable_only=True):
+    """Count model parameters.
+
+    Args:
+        model: PyTorch model
+        trainable_only: If True, count only parameters with requires_grad=True
+    """
+    if trainable_only:
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return sum(p.numel() for p in model.parameters())
 
 
 def get_device(prefer_cuda=True):
@@ -150,9 +165,11 @@ def get_device(prefer_cuda=True):
 
 def print_model_info(model, model_name='Model'):
     """Print model information"""
-    total_params = count_parameters(model)
+    total_params = count_parameters(model, trainable_only=False)
+    trainable_params = count_parameters(model, trainable_only=True)
     print(f"\n{'='*50}")
     print(f"{model_name} Information:")
     print(f"{'='*50}")
     print(f"Total parameters: {total_params:,}")
+    print(f"Trainable parameters: {trainable_params:,}")
     print(f"{'='*50}\n")
