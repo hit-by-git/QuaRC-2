@@ -96,6 +96,8 @@ CLC_CORRECT_ALL_LAYERS = True  # Correct all intermediate layers
 USE_KD = True                  # Enable KD
 TEACHER_MODEL = "mobilenetv2"
 KD_TEMPERATURE = 4.0           # Temperature scaling
+TEACHER_EPOCHS = 120
+MIN_TEACHER_TOP1 = 60.0        # Retrain teacher if below this Top-1
 ```
 
 ## 📁 Output Structure
@@ -158,7 +160,6 @@ model, optimizer, epoch, top1, top5 = load_checkpoint(model, optimizer, 'checkpo
 | 256 | ~6 GB | 200 |
 | 128 | ~3 GB | 200 |
 | 64  | ~2 GB | 200 |
-```
 
 If OOM, reduce `BATCH_SIZE` in config.py.
 
@@ -221,9 +222,10 @@ SEED = 42         # Already set in config
 3. **Save**: Best model and periodic checkpoints
 
 ### Losses
+- **CE Loss**: Supervised CIFAR-100 classification
 - **KD Loss**: Aligns final outputs between student and teacher
 - **CLC Loss**: Aligns intermediate layer outputs
-- **Total**: KD + β × CLC (β = 10^5)
+- **Total**: CE + KD + β × CLC (β = 10^5)
 
 ## ✅ Validation Checklist
 

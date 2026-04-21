@@ -1,11 +1,24 @@
 """
 Quantization utilities - LSQ+ and fake quantization operations
 Based on: "LSQ+: Improving low-bit quantization through learnable offsets and better initialization"
+
+# QuaRC Step 0: LSQ+ quantization
+# - Learnable scale parameters
+# - Fake quantization for weights/activations
+# - Straight-through estimator for gradients
 """
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import types
 from config import SYMMETRIC_QUANTIZATION
+
+
+def _gradient_scale(x, scale):
+    """Scale gradients flowing through x while preserving forward value."""
+    y = x
+    y_grad = x * scale
+    return (y - y_grad).detach() + y_grad
 
 
 class FakeQuantization(nn.Module):
@@ -25,21 +38,26 @@ class FakeQuantization(nn.Module):
         
         # Learnable scale parameter
         self.register_parameter('scale', nn.Parameter(torch.ones(1)))
-        self.register_buffer('zero_point', torch.zeros(1))
+        # LSQ+ style learnable offset (beta)
+        self.register_parameter('offset', nn.Parameter(torch.zeros(1)))
     
     def forward(self, x):
         """
         Fake quantization forward pass
         x_q = s * clamp(round(x_r / s), -Q_N, Q_P)
         """
+        # LSQ+ forward quantization step used by QuaRC
         # Clamp scale to avoid division by zero
         scale = torch.clamp(self.scale, min=1e-8)
+        grad_scale = 1.0 / ((x.numel() * max(self.qp, 1)) ** 0.5)
+        scale = _gradient_scale(scale, grad_scale)
+        offset = self.offset
         
         # Quantize
-        x_normalized = x / scale
+        x_normalized = (x - offset) / scale
         x_rounded = torch.round(x_normalized)
         x_clamped = torch.clamp(x_rounded, self.qn, self.qp)
-        x_quantized = x_clamped * scale
+        x_quantized = x_clamped * scale + offset
         
         return x_quantized
     
@@ -53,6 +71,7 @@ class FakeQuantization(nn.Module):
             scale_init = torch.quantile(x.abs(), 0.9999) / self.qp
         
         self.scale.data = torch.clamp(scale_init, min=1e-8)
+        self.offset.data = x.mean().detach().reshape_as(self.offset)
 
 
 class QuantizationModule(nn.Module):
@@ -134,3 +153,51 @@ class StraightThroughQuantizer(nn.Module):
             return x_quant + (x - x_quant).detach()
         else:
             return self.fake_quant(x)
+
+
+def _patch_quantized_forward(module, activation_bits):
+    """Replace Conv/Linear forward with a weight-quantized forward."""
+    module._original_forward = module.forward
+
+    def _forward(self, x):
+        quant_weight = self.weight_quantizer(self.weight)
+
+        if isinstance(self, nn.Conv2d):
+            out = F.conv2d(
+                x,
+                quant_weight,
+                self.bias,
+                self.stride,
+                self.padding,
+                self.dilation,
+                self.groups,
+            )
+        else:
+            out = F.linear(x, quant_weight, self.bias)
+
+        if activation_bits < 32 and hasattr(self, 'activation_quantizer'):
+            out = self.activation_quantizer(out)
+
+        return out
+
+    module.forward = types.MethodType(_forward, module)
+
+
+def attach_lsq_plus_quantization(model, weight_bits, activation_bits, symmetric=True):
+    """Attach LSQ+ quantizers directly to Conv2d/Linear modules in the model."""
+    if weight_bits >= 32 and activation_bits >= 32:
+        return model
+
+    for module in model.modules():
+        if isinstance(module, (nn.Conv2d, nn.Linear)):
+            if weight_bits < 32:
+                module.weight_quantizer = StraightThroughQuantizer(weight_bits, symmetric)
+                module.weight_quantizer.fake_quant.initialize_scale(module.weight.data)
+
+            if activation_bits < 32:
+                module.activation_quantizer = StraightThroughQuantizer(activation_bits, symmetric)
+
+            if weight_bits < 32:
+                _patch_quantized_forward(module, activation_bits)
+
+    return model

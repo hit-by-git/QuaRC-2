@@ -1,5 +1,11 @@
 """
 Training utilities with Knowledge Distillation (KD) and Cascaded Layer Correction (CLC)
+
+# QuaRC Step 3: Training objective
+# - Supervised cross-entropy loss on CIFAR-100 labels
+# - Knowledge Distillation loss
+# - Cascaded Layer Correction loss
+# - Final objective: L_TOTAL = L_CE + L_KD + beta * L_CLC
 """
 import torch
 import torch.nn as nn
@@ -62,6 +68,7 @@ class CascadedLayerCorrectionLoss(nn.Module):
         Returns:
             CLC loss (KL divergence between intermediate outputs)
         """
+        # QuaRC formula: L_CLC = sum_c p_Q^c(w_q, x_q) * log(p_Q^c(w_q, x_q) / p_F^c(w_r, x_r))
         # Reshape if necessary (flatten for FC layers, keep spatial for conv)
         if student_intermediate.dim() > 2:
             # For conv layers, use spatial average
@@ -179,14 +186,18 @@ class QuantizationAwareTrainer:
             inputs = inputs.to(self.device)
             targets = targets.to(self.device)
             
-            # Forward pass
+            # Forward pass for the student; gradients must flow here
             q_logits = self.q_model(inputs)
             
             with torch.no_grad():
                 fp_logits = self.fp_model(inputs)
             
-            # Calculate losses
-            loss = 0.0
+            # QuaRC Step 3: Final objective
+            # L_TOTAL = L_CE + L_KD + beta * L_CLC
+            loss_ce = self.ce_loss(q_logits, targets)
+            loss = loss_ce
+            loss_kd = torch.tensor(0.0, device=self.device)
+            loss_clc = torch.tensor(0.0, device=self.device)
             
             # Knowledge Distillation Loss
             if self.use_kd:
@@ -210,7 +221,12 @@ class QuantizationAwareTrainer:
             # Log
             if (batch_idx + 1) % log_frequency == 0:
                 avg_loss = total_loss / total_samples
-                pbar.set_postfix({'loss': f'{avg_loss:.4f}'})
+                pbar.set_postfix({
+                    'loss': f'{avg_loss:.4f}',
+                    'ce': f'{loss_ce.item():.3f}',
+                    'kd': f'{loss_kd.item():.3f}',
+                    'clc': f'{loss_clc.item():.3f}'
+                })
         
         avg_loss = total_loss / total_samples
         return avg_loss
@@ -246,9 +262,9 @@ class QuantizationAwareTrainer:
                 handle = module.register_forward_hook(get_activation(fp_model_hooks, name))
                 handles_fp.append(handle)
         
-        # Forward pass
+        # Forward pass: student must keep gradients; teacher stays frozen
+        _ = self.q_model(inputs)
         with torch.no_grad():
-            _ = self.q_model(inputs)
             _ = self.fp_model(inputs)
         
         # Compute CLC loss for aligned layers

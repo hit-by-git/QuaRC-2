@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 from torchvision import models
 import os
+from quantization import attach_lsq_plus_quantization
 
 
 def get_model(model_name='mobilenetv2', num_classes=100, pretrained=True, device='cuda'):
@@ -63,16 +64,12 @@ def quantize_model(model, weight_bits, activation_bits):
     q_model.weight_bits = weight_bits
     q_model.activation_bits = activation_bits
     
-    # For LSQ+, we'll apply learnable scale factors to weights
-    for name, module in q_model.named_modules():
-        if isinstance(module, (nn.Conv2d, nn.Linear)):
-            # Add learnable scale parameter
-            if hasattr(module, 'weight'):
-                # Initialize scale based on weight statistics
-                weight = module.weight.data
-                scale = weight.abs().max() / (2 ** (weight_bits - 1))
-                if not hasattr(module, 'scale'):
-                    module.register_parameter('scale', nn.Parameter(torch.tensor(scale)))
+    # Attach LSQ+ quantization to Conv/Linear forward passes
+    q_model = attach_lsq_plus_quantization(
+        q_model,
+        weight_bits=weight_bits,
+        activation_bits=activation_bits,
+    )
     
     return q_model
 

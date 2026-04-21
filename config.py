@@ -35,7 +35,7 @@ USE_RELATIVE_ENTROPY = True
 
 # Cascaded Layer Correction configuration
 USE_CLC = True
-CLC_BETA = 1e5  # Weight for CLC loss
+CLC_BETA = 1e5  # Paper setting for CLC loss weight
 CLC_CORRECT_ALL_LAYERS = True  # Correct all intermediate layers
 
 # Knowledge Distillation configuration
@@ -43,6 +43,12 @@ USE_KD = True
 TEACHER_MODEL = "mobilenetv2"
 TEACHER_PRETRAINED = True
 KD_TEMPERATURE = 4.0
+TEACHER_CHECKPOINT_PATH = "./checkpoints/teacher_cifar100.pt"
+PRETRAIN_TEACHER_IF_MISSING = True
+TEACHER_EPOCHS = 120
+TEACHER_LEARNING_RATE = 0.05
+TEACHER_WEIGHT_DECAY = 5e-4
+MIN_TEACHER_TOP1 = 60.0
 
 # Metrics for coreset selection
 USE_EVS = True  # Error Vector Score

@@ -1,6 +1,12 @@
 """
 Coreset Selection with Relative Entropy Score (RES)
 Based on Algorithm 1 from the QuaRC paper
+
+# QuaRC Step 2: Sample scoring
+# - Relative Entropy Score (RES)
+# - Error Vector Score (EVS)
+# - Disagreement Score (DS)
+# - Equation 6: final coreset score
 """
 import torch
 import torch.nn.functional as F
@@ -24,6 +30,8 @@ def calculate_relative_entropy(p_q, p_f, reduction='mean'):
     Returns:
         Relative entropy for each sample in batch
     """
+    # QuaRC formula (RES):
+    # d_RES = sum_m p_Q(w_q, x_q) * log(p_Q(w_q, x_q) / p_F(w_r, x_r))
     # Convert logits to probabilities
     p_q_softmax = F.softmax(p_q, dim=1)
     p_f_softmax = F.softmax(p_f, dim=1)
@@ -134,6 +142,10 @@ def compute_coreset_scores(fp_model, q_model, train_loader, epoch, total_epochs,
     Compute coreset selection scores for all samples
     
     Final metric: d_S(t) = alpha(t)*d_EVS(t) + (1-alpha(t))*d_DS(t) + d_RES(t)
+
+    # Equation 6 from the QuaRC paper:
+    # d_S(t) = alpha(t) * d_EVS(t) + (1 - alpha(t)) * d_DS(t) + d_RES(t)
+    # alpha(t) = cos(t / (2T) * pi)
     
     Args:
         fp_model: Full-precision model

@@ -81,6 +81,23 @@ class ExperimentConfig:
         'expected_top5': 91.77,
     }
 
+    CIFAR100_MOBILENETV2_4BIT_1PERCENT = {
+        'name': 'CIFAR100_MobileNetV2_4w32a_1%',
+        'dataset': 'cifar100',
+        'model': 'mobilenetv2',
+        'weight_bits': 4,
+        'activation_bits': 32,
+        'coreset_fraction': 0.01,
+        'batch_size': 256,
+        'num_epochs': 200,
+        'learning_rate': 0.01,
+        'weight_decay': 5e-4,
+        'selection_interval': 50,
+        'clc_beta': 1e5,
+        'expected_top1': 71.25,
+        'expected_top5': 91.39,
+    }
+
 
 def create_config_from_experiment(experiment_config):
     """Create a config module from experiment configuration"""
@@ -189,6 +206,7 @@ def main():
     experiments = [
         ExperimentConfig.CIFAR100_MOBILENETV2_2BIT_1PERCENT,
         ExperimentConfig.CIFAR100_MOBILENETV2_3BIT_1PERCENT,
+        ExperimentConfig.CIFAR100_MOBILENETV2_4BIT_1PERCENT,
         ExperimentConfig.CIFAR100_MOBILENETV2_2BIT_5PERCENT,
         ExperimentConfig.CIFAR100_MOBILENETV2_3BIT_5PERCENT,
     ]
